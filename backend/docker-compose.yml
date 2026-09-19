@@ -1,0 +1,15 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: valora
+      POSTGRES_PASSWORD: valora
+      POSTGRES_DB: valora
+    ports:
+      - "5432:5432"
+    volumes:
+      - valora_postgres_data:/var/lib/postgresql/data
+
+volumes:
+  valora_postgres_data:
