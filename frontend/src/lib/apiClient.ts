@@ -67,3 +67,26 @@ export function login(input: {
 export function me(token: string): Promise<AuthenticatedUser> {
   return apiFetch<AuthenticatedUser>('/auth/me', { method: 'GET', token })
 }
+
+export type Currency = 'BRL' | 'USD'
+
+export interface Account {
+  id: string
+  name: string
+  currency: Currency
+}
+
+export function getAccounts(token: string): Promise<Account[]> {
+  return apiFetch<Account[]>('/accounts', { method: 'GET', token })
+}
+
+export function createAccount(
+  token: string,
+  input: { name: string; currency: Currency },
+): Promise<Account> {
+  return apiFetch<Account>('/accounts', {
+    method: 'POST',
+    body: input,
+    token,
+  })
+}

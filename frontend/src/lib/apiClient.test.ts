@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { ApiError, login, register } from './apiClient'
+import { ApiError, createAccount, getAccounts, login, register } from './apiClient'
 
 describe('apiClient', () => {
   afterEach(() => {
@@ -101,6 +101,60 @@ describe('apiClient', () => {
       await expect(
         login({ email: 'maria@example.com', password: 'wrong' }),
       ).rejects.toMatchObject({ status: 401 })
+    })
+  })
+
+  describe('getAccounts', () => {
+    it('sends the bearer token and returns the parsed accounts', async () => {
+      const fetchMock = vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify([{ id: 'acc-1', name: 'Wallet', currency: 'BRL' }]),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      )
+      vi.stubGlobal('fetch', fetchMock)
+
+      const result = await getAccounts('token-123')
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining('/accounts'),
+        expect.objectContaining({
+          method: 'GET',
+          headers: expect.objectContaining({
+            Authorization: 'Bearer token-123',
+          }),
+        }),
+      )
+      expect(result).toEqual([{ id: 'acc-1', name: 'Wallet', currency: 'BRL' }])
+    })
+  })
+
+  describe('createAccount', () => {
+    it('posts the account payload with the bearer token', async () => {
+      const fetchMock = vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({ id: 'acc-1', name: 'Wallet', currency: 'BRL' }),
+          { status: 201, headers: { 'Content-Type': 'application/json' } },
+        ),
+      )
+      vi.stubGlobal('fetch', fetchMock)
+
+      const result = await createAccount('token-123', {
+        name: 'Wallet',
+        currency: 'BRL',
+      })
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining('/accounts'),
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({ name: 'Wallet', currency: 'BRL' }),
+          headers: expect.objectContaining({
+            Authorization: 'Bearer token-123',
+          }),
+        }),
+      )
+      expect(result).toEqual({ id: 'acc-1', name: 'Wallet', currency: 'BRL' })
     })
   })
 })

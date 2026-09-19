@@ -8,5 +8,6 @@
   },
   "globalSetup": "<rootDir>/testcontainers-setup.js",
   "globalTeardown": "<rootDir>/testcontainers-teardown.js",
-  "testTimeout": 30000
+  "testTimeout": 30000,
+  "maxWorkers": 1
 }
