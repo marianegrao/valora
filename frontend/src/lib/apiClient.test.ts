@@ -1,0 +1,106 @@
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { ApiError, login, register } from './apiClient'
+
+describe('apiClient', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  describe('register', () => {
+    it('posts to /auth/register and returns the parsed response', async () => {
+      const fetchMock = vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            accessToken: 'token-123',
+            user: { id: '1', name: 'Maria', email: 'maria@example.com' },
+          }),
+          { status: 201, headers: { 'Content-Type': 'application/json' } },
+        ),
+      )
+      vi.stubGlobal('fetch', fetchMock)
+
+      const result = await register({
+        name: 'Maria',
+        email: 'maria@example.com',
+        password: 'super-secret',
+      })
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining('/auth/register'),
+        expect.objectContaining({
+          method: 'POST',
+          headers: expect.objectContaining({
+            'Content-Type': 'application/json',
+          }),
+          body: JSON.stringify({
+            name: 'Maria',
+            email: 'maria@example.com',
+            password: 'super-secret',
+          }),
+        }),
+      )
+      expect(result).toEqual({
+        accessToken: 'token-123',
+        user: { id: '1', name: 'Maria', email: 'maria@example.com' },
+      })
+    })
+
+    it('throws an ApiError with the server message when registration fails', async () => {
+      const fetchMock = vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ message: 'Email already in use' }), {
+          status: 409,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      )
+      vi.stubGlobal('fetch', fetchMock)
+
+      await expect(
+        register({
+          name: 'Maria',
+          email: 'maria@example.com',
+          password: 'super-secret',
+        }),
+      ).rejects.toThrow(ApiError)
+    })
+  })
+
+  describe('login', () => {
+    it('posts to /auth/login and returns the parsed response', async () => {
+      const fetchMock = vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            accessToken: 'token-123',
+            user: { id: '1', name: 'Maria', email: 'maria@example.com' },
+          }),
+          { status: 201, headers: { 'Content-Type': 'application/json' } },
+        ),
+      )
+      vi.stubGlobal('fetch', fetchMock)
+
+      const result = await login({
+        email: 'maria@example.com',
+        password: 'super-secret',
+      })
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining('/auth/login'),
+        expect.objectContaining({ method: 'POST' }),
+      )
+      expect(result.accessToken).toBe('token-123')
+    })
+
+    it('throws an ApiError with 401 when credentials are invalid', async () => {
+      const fetchMock = vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ message: 'Invalid credentials' }), {
+          status: 401,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      )
+      vi.stubGlobal('fetch', fetchMock)
+
+      await expect(
+        login({ email: 'maria@example.com', password: 'wrong' }),
+      ).rejects.toMatchObject({ status: 401 })
+    })
+  })
+})
