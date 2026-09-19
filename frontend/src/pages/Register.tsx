@@ -18,7 +18,7 @@ export function Register() {
     setIsSubmitting(true)
     try {
       await register(name, email, password)
-      navigate('/')
+      navigate('/transactions')
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Something went wrong')
     } finally {

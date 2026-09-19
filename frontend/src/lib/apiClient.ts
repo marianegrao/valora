@@ -90,3 +90,42 @@ export function createAccount(
     token,
   })
 }
+
+export type TransactionType = 'DEBIT' | 'CREDIT'
+export type PaymentMethod = 'PIX' | 'CREDIT_CARD' | 'DEBIT_CARD' | 'CASH'
+
+export interface Transaction {
+  id: string
+  accountId: string
+  description?: string | null
+  value: number
+  type: TransactionType
+  paymentMethod: PaymentMethod
+}
+
+export function getTransactions(
+  token: string,
+  accountId: string,
+): Promise<Transaction[]> {
+  return apiFetch<Transaction[]>(
+    `/transactions?accountId=${encodeURIComponent(accountId)}`,
+    { method: 'GET', token },
+  )
+}
+
+export function createTransaction(
+  token: string,
+  input: {
+    accountId: string
+    description?: string
+    value: number
+    type: TransactionType
+    paymentMethod: PaymentMethod
+  },
+): Promise<Transaction> {
+  return apiFetch<Transaction>('/transactions', {
+    method: 'POST',
+    body: input,
+    token,
+  })
+}

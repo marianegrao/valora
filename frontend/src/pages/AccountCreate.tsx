@@ -18,7 +18,7 @@ export function AccountCreate() {
     setIsSubmitting(true)
     try {
       await createAccount(token, { name, currency })
-      navigate('/')
+      navigate('/transactions')
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Something went wrong')
     } finally {

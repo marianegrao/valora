@@ -15,7 +15,8 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  accounts Account[]
+  accounts     Account[]
+  transactions Transaction[]
 }
 
 enum Currency {
@@ -31,5 +32,33 @@ model Account {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions Transaction[]
+}
+
+enum TransactionType {
+  DEBIT
+  CREDIT
+}
+
+enum PaymentMethod {
+  PIX
+  CREDIT_CARD
+  DEBIT_CARD
+  CASH
+}
+
+model Transaction {
+  id            String          @id @default(uuid())
+  userId        String
+  accountId     String
+  description   String?
+  value         Int
+  type          TransactionType
+  paymentMethod PaymentMethod
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
 }

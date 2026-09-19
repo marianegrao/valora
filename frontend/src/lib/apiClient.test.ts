@@ -1,5 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { ApiError, createAccount, getAccounts, login, register } from './apiClient'
+import {
+  ApiError,
+  createAccount,
+  createTransaction,
+  getAccounts,
+  getTransactions,
+  login,
+  register,
+} from './apiClient'
 
 describe('apiClient', () => {
   afterEach(() => {
@@ -155,6 +163,81 @@ describe('apiClient', () => {
         }),
       )
       expect(result).toEqual({ id: 'acc-1', name: 'Wallet', currency: 'BRL' })
+    })
+  })
+
+  describe('getTransactions', () => {
+    it('requests transactions for the given account with the bearer token', async () => {
+      const fetchMock = vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify([
+            {
+              id: 'tx-1',
+              accountId: 'acc-1',
+              value: 4599,
+              type: 'DEBIT',
+              paymentMethod: 'PIX',
+            },
+          ]),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      )
+      vi.stubGlobal('fetch', fetchMock)
+
+      const result = await getTransactions('token-123', 'acc-1')
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining('/transactions?accountId=acc-1'),
+        expect.objectContaining({
+          method: 'GET',
+          headers: expect.objectContaining({
+            Authorization: 'Bearer token-123',
+          }),
+        }),
+      )
+      expect(result).toHaveLength(1)
+    })
+  })
+
+  describe('createTransaction', () => {
+    it('posts the transaction payload with the bearer token', async () => {
+      const fetchMock = vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            id: 'tx-1',
+            accountId: 'acc-1',
+            description: 'Groceries',
+            value: 4599,
+            type: 'DEBIT',
+            paymentMethod: 'CREDIT_CARD',
+          }),
+          { status: 201, headers: { 'Content-Type': 'application/json' } },
+        ),
+      )
+      vi.stubGlobal('fetch', fetchMock)
+
+      const result = await createTransaction('token-123', {
+        accountId: 'acc-1',
+        description: 'Groceries',
+        value: 4599,
+        type: 'DEBIT',
+        paymentMethod: 'CREDIT_CARD',
+      })
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining('/transactions'),
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({
+            accountId: 'acc-1',
+            description: 'Groceries',
+            value: 4599,
+            type: 'DEBIT',
+            paymentMethod: 'CREDIT_CARD',
+          }),
+        }),
+      )
+      expect(result.id).toBe('tx-1')
     })
   })
 })
