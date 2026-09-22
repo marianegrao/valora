@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
 import { ApiError, createAccount, type Currency } from '../lib/apiClient'
+import { createAccountSchema, formatValidationError } from '../lib/validation'
 
 export function AccountCreate() {
   const { token } = useAuth()
@@ -15,9 +16,16 @@ export function AccountCreate() {
     event.preventDefault()
     if (!token) return
     setError(null)
+
+    const validation = createAccountSchema.safeParse({ name, currency })
+    if (!validation.success) {
+      setError(formatValidationError(validation.error))
+      return
+    }
+
     setIsSubmitting(true)
     try {
-      await createAccount(token, { name, currency })
+      await createAccount(token, validation.data)
       navigate('/transactions')
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Something went wrong')

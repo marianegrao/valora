@@ -49,6 +49,20 @@ describe('Register page', () => {
     )
   })
 
+  it('shows a validation error and does not call the API when the password is too short', async () => {
+    renderPage()
+
+    await userEvent.type(screen.getByLabelText(/name/i), 'Maria')
+    await userEvent.type(screen.getByLabelText(/email/i), 'maria@example.com')
+    await userEvent.type(screen.getByLabelText(/password/i), 'short')
+    await userEvent.click(screen.getByRole('button', { name: /create account/i }))
+
+    expect(
+      await screen.findByText(/password must be at least 8 characters/i),
+    ).toBeInTheDocument()
+    expect(apiClient.register).not.toHaveBeenCalled()
+  })
+
   it('shows an error message when registration fails', async () => {
     vi.mocked(apiClient.register).mockRejectedValue(
       new apiClient.ApiError(409, 'Email already in use'),

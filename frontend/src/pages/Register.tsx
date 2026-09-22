@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
 import { ApiError } from '../lib/apiClient'
+import { formatValidationError, registerSchema } from '../lib/validation'
 
 export function Register() {
   const { register } = useAuth()
@@ -15,9 +16,20 @@ export function Register() {
   async function handleSubmit(event: FormEvent) {
     event.preventDefault()
     setError(null)
+
+    const validation = registerSchema.safeParse({ name, email, password })
+    if (!validation.success) {
+      setError(formatValidationError(validation.error))
+      return
+    }
+
     setIsSubmitting(true)
     try {
-      await register(name, email, password)
+      await register(
+        validation.data.name,
+        validation.data.email,
+        validation.data.password,
+      )
       navigate('/transactions')
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Something went wrong')

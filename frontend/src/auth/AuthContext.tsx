@@ -32,17 +32,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setIsLoading(false)
       return
     }
+    const currentToken = storedToken
 
-    apiClient
-      .me(storedToken)
-      .then((restoredUser) => {
-        setToken(storedToken)
+    async function restoreSession() {
+      try {
+        const restoredUser = await apiClient.me(currentToken)
+        setToken(currentToken)
         setUser(restoredUser)
-      })
-      .catch(() => {
+      } catch {
         localStorage.removeItem(TOKEN_STORAGE_KEY)
-      })
-      .finally(() => setIsLoading(false))
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    restoreSession()
   }, [])
 
   function persistSession(result: apiClient.AuthResult) {

@@ -65,6 +65,21 @@ describe('Transactions page', () => {
     expect(screen.getByText('45.99')).toBeInTheDocument()
   })
 
+  it('shows a validation error and does not call the API when the amount is not a valid number', async () => {
+    vi.mocked(apiClient.getTransactions).mockResolvedValue([])
+
+    renderPage()
+    await waitFor(() =>
+      expect(apiClient.getTransactions).toHaveBeenCalled(),
+    )
+
+    await userEvent.type(screen.getByLabelText(/amount/i), 'abc')
+    await userEvent.click(screen.getByRole('button', { name: /add transaction/i }))
+
+    expect(await screen.findByText(/enter a valid amount/i)).toBeInTheDocument()
+    expect(apiClient.createTransaction).not.toHaveBeenCalled()
+  })
+
   it('submits a new transaction converting the amount to minor units', async () => {
     vi.mocked(apiClient.getTransactions).mockResolvedValue([])
     vi.mocked(apiClient.createTransaction).mockResolvedValue({

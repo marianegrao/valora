@@ -11,6 +11,7 @@ import {
   type TransactionType,
 } from '../lib/apiClient'
 import { toMajorUnits, toMinorUnits } from '../lib/money'
+import { createTransactionSchema, formatValidationError } from '../lib/validation'
 
 export function Transactions() {
   const { token } = useAuth()
@@ -28,29 +29,53 @@ export function Transactions() {
 
   useEffect(() => {
     if (!token) return
-    getAccounts(token).then((accounts) => {
-      if (accounts.length === 0) {
-        navigate('/accounts/new')
-        return
+    const currentToken = token
+
+    async function loadTransactions() {
+      try {
+        const accounts = await getAccounts(currentToken)
+        if (accounts.length === 0) {
+          navigate('/accounts/new')
+          return
+        }
+        const firstAccountId = accounts[0].id
+        setAccountId(firstAccountId)
+        const data = await getTransactions(currentToken, firstAccountId)
+        setTransactions(data)
+      } catch (err) {
+        setError(err instanceof ApiError ? err.message : 'Something went wrong')
+      } finally {
+        setIsLoading(false)
       }
-      const firstAccountId = accounts[0].id
-      setAccountId(firstAccountId)
-      return getTransactions(token, firstAccountId).then(setTransactions)
-    }).finally(() => setIsLoading(false))
+    }
+
+    loadTransactions()
   }, [token, navigate])
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault()
     if (!token || !accountId) return
     setError(null)
+
+    const validation = createTransactionSchema.safeParse({
+      amount,
+      type,
+      paymentMethod,
+      description: description || undefined,
+    })
+    if (!validation.success) {
+      setError(formatValidationError(validation.error))
+      return
+    }
+
     setIsSubmitting(true)
     try {
       const created = await createTransaction(token, {
         accountId,
-        description: description || undefined,
-        value: toMinorUnits(amount),
-        type,
-        paymentMethod,
+        description: validation.data.description,
+        value: toMinorUnits(validation.data.amount),
+        type: validation.data.type,
+        paymentMethod: validation.data.paymentMethod,
       })
       setTransactions((current) => [...current, created])
       setAmount('')

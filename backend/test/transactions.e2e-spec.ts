@@ -3,6 +3,7 @@ import { INestApplication, ValidationPipe } from '@nestjs/common';
 import * as request from 'supertest';
 import { AppModule } from './../src/app.module';
 import { PrismaService } from './../src/prisma/prisma.service';
+import { resetDatabase } from './resetDatabase';
 
 describe('Transactions (e2e)', () => {
   let app: INestApplication;
@@ -27,9 +28,7 @@ describe('Transactions (e2e)', () => {
   });
 
   beforeEach(async () => {
-    await prisma.transaction.deleteMany();
-    await prisma.account.deleteMany();
-    await prisma.user.deleteMany();
+    await resetDatabase(prisma);
   });
 
   async function registerUser(email: string) {
