@@ -8,12 +8,14 @@ datasource db {
 }
 
 model User {
-  id        String   @id @default(uuid())
-  name      String
-  email     String   @unique
-  password  String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id            String   @id @default(uuid())
+  name          String
+  email         String   @unique
+  password      String
+  /// Random per-user key the client uses to encrypt its local database.
+  encryptionKey String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   accounts     Account[]
   transactions Transaction[]
