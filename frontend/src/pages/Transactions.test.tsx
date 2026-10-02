@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -116,5 +116,84 @@ describe('Transactions page', () => {
     )
     expect(saved.updatedAt).toBe(saved.createdAt)
     await waitFor(() => expect(data.sync.trigger).toHaveBeenCalled())
+  })
+
+  describe('editing', () => {
+    it('updates the transaction locally, bumping updatedAt, and triggers a sync', async () => {
+      const doc = transactionDoc({ description: 'Groceries', value: 4599 })
+      await data.db.transactions.insert(doc)
+      renderPage(data)
+      const row = (await screen.findByText('Groceries')).closest('li')!
+
+      await userEvent.click(within(row).getByRole('button', { name: /edit/i }))
+      const amountInput = screen.getByLabelText(/amount/i)
+      expect(amountInput).toHaveValue('45.99')
+      await userEvent.clear(amountInput)
+      await userEvent.type(amountInput, '50.00')
+      await userEvent.click(screen.getByRole('button', { name: /save changes/i }))
+
+      expect(await screen.findByText('50.00')).toBeInTheDocument()
+      const saved = await data.db.transactions.findOne(doc.id).exec()
+      expect(saved?.value).toBe(5000)
+      expect(saved?.description).toBe('Groceries')
+      expect(saved!.updatedAt).toBeGreaterThan(doc.updatedAt)
+      expect(screen.getByRole('button', { name: /add transaction/i })).toBeInTheDocument()
+      await waitFor(() => expect(data.sync.trigger).toHaveBeenCalled())
+    })
+
+    it('can be cancelled without changing the transaction', async () => {
+      const doc = transactionDoc({ description: 'Groceries', value: 4599 })
+      await data.db.transactions.insert(doc)
+      renderPage(data)
+      const row = (await screen.findByText('Groceries')).closest('li')!
+
+      await userEvent.click(within(row).getByRole('button', { name: /edit/i }))
+      await userEvent.clear(screen.getByLabelText(/amount/i))
+      await userEvent.type(screen.getByLabelText(/amount/i), '1.00')
+      await userEvent.click(screen.getByRole('button', { name: /cancel/i }))
+
+      expect(screen.getByLabelText(/amount/i)).toHaveValue('')
+      expect((await data.db.transactions.findOne(doc.id).exec())?.value).toBe(4599)
+    })
+  })
+
+  describe('deleting', () => {
+    it('asks for confirmation and keeps the transaction when cancelled', async () => {
+      const doc = transactionDoc({ description: 'Groceries' })
+      await data.db.transactions.insert(doc)
+      renderPage(data)
+      const row = (await screen.findByText('Groceries')).closest('li')!
+
+      await userEvent.click(within(row).getByRole('button', { name: /delete/i }))
+      const dialog = screen.getByRole('dialog')
+      expect(dialog).toHaveTextContent(/delete this transaction/i)
+      await userEvent.click(within(dialog).getByRole('button', { name: /cancel/i }))
+
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+      expect(screen.getByText('Groceries')).toBeInTheDocument()
+      expect(await data.db.transactions.findOne(doc.id).exec()).not.toBeNull()
+    })
+
+    it('soft-deletes after confirmation, bumping updatedAt, and triggers a sync', async () => {
+      const doc = transactionDoc({ description: 'Groceries' })
+      await data.db.transactions.insert(doc)
+      renderPage(data)
+      const row = (await screen.findByText('Groceries')).closest('li')!
+
+      await userEvent.click(within(row).getByRole('button', { name: /delete/i }))
+      await userEvent.click(
+        within(screen.getByRole('dialog')).getByRole('button', { name: /delete/i }),
+      )
+
+      await waitFor(() => expect(screen.queryByText('Groceries')).not.toBeInTheDocument())
+      expect(await data.db.transactions.findOne(doc.id).exec()).toBeNull()
+      const [stored] = await data.db.transactions.storageInstance.findDocumentsById(
+        [doc.id],
+        true,
+      )
+      expect(stored._deleted).toBe(true)
+      expect(stored.updatedAt).toBeGreaterThan(doc.updatedAt)
+      await waitFor(() => expect(data.sync.trigger).toHaveBeenCalled())
+    })
   })
 })

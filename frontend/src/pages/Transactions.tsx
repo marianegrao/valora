@@ -23,6 +23,8 @@ export function Transactions() {
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('PIX')
   const [description, setDescription] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null)
 
   useEffect(() => {
     if (!token || !userId) return
@@ -81,24 +83,69 @@ export function Transactions() {
     try {
       // Written locally first; the list updates from the local write and
       // replication reconciles with the backend in the background.
+      // updatedAt is bumped on every write: it decides last-write-wins.
       const now = Date.now()
-      await collection.insert({
-        id: crypto.randomUUID(),
-        accountId,
+      const fields = {
         description: validation.data.description ?? null,
         value: toMinorUnits(validation.data.amount),
         type: validation.data.type,
         paymentMethod: validation.data.paymentMethod,
-        createdAt: now,
         updatedAt: now,
-      })
-      setAmount('')
-      setDescription('')
+      }
+      if (editingId) {
+        const doc = await collection.findOne(editingId).exec()
+        if (!doc) throw new Error('Transaction no longer exists')
+        await doc.incrementalPatch(fields)
+      } else {
+        await collection.insert({
+          id: crypto.randomUUID(),
+          accountId,
+          createdAt: now,
+          ...fields,
+        })
+      }
+      resetForm()
       void sync?.trigger()
     } catch {
       setError('Could not save the transaction')
     } finally {
       setIsSubmitting(false)
+    }
+  }
+
+  function resetForm() {
+    setEditingId(null)
+    setAmount('')
+    setType('DEBIT')
+    setPaymentMethod('PIX')
+    setDescription('')
+  }
+
+  function startEditing(transaction: TransactionDoc) {
+    setError(null)
+    setEditingId(transaction.id)
+    setAmount(toMajorUnits(transaction.value))
+    setType(transaction.type)
+    setPaymentMethod(transaction.paymentMethod)
+    setDescription(transaction.description ?? '')
+  }
+
+  async function confirmDelete() {
+    if (!collection || !pendingDeleteId) return
+    const id = pendingDeleteId
+    setPendingDeleteId(null)
+    setError(null)
+    try {
+      const doc = await collection.findOne(id).exec()
+      if (!doc) return
+      // Soft-delete: the bumped updatedAt travels with _deleted so the
+      // deletion wins over older edits made on other devices.
+      const touched = await doc.incrementalPatch({ updatedAt: Date.now() })
+      await touched.incrementalRemove()
+      if (editingId === id) resetForm()
+      void sync?.trigger()
+    } catch {
+      setError('Could not delete the transaction')
     }
   }
 
@@ -118,10 +165,26 @@ export function Transactions() {
         {transactions.map((transaction) => (
           <li
             key={transaction.id}
-            className="flex justify-between rounded border border-gray-200 px-3 py-2"
+            className="flex items-center justify-between gap-3 rounded border border-gray-200 px-3 py-2"
           >
-            <span>{transaction.description || transaction.paymentMethod}</span>
+            <span className="flex-1">
+              {transaction.description || transaction.paymentMethod}
+            </span>
             <span>{toMajorUnits(transaction.value)}</span>
+            <button
+              type="button"
+              onClick={() => startEditing(transaction)}
+              className="text-sm underline"
+            >
+              Edit
+            </button>
+            <button
+              type="button"
+              onClick={() => setPendingDeleteId(transaction.id)}
+              className="text-sm text-red-600 underline"
+            >
+              Delete
+            </button>
           </li>
         ))}
       </ul>
@@ -175,9 +238,49 @@ export function Transactions() {
           disabled={isSubmitting}
           className="rounded bg-gray-900 px-4 py-2 text-white disabled:opacity-50"
         >
-          Add transaction
+          {editingId ? 'Save changes' : 'Add transaction'}
         </button>
+        {editingId && (
+          <button
+            type="button"
+            onClick={resetForm}
+            className="rounded border border-gray-300 px-4 py-2"
+          >
+            Cancel
+          </button>
+        )}
       </form>
+
+      {pendingDeleteId && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-transaction-title"
+          className="fixed inset-0 flex items-center justify-center bg-black/30 px-4"
+        >
+          <div className="flex w-full max-w-sm flex-col gap-4 rounded bg-white p-4">
+            <p id="delete-transaction-title" className="text-sm text-gray-900">
+              Delete this transaction?
+            </p>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setPendingDeleteId(null)}
+                className="rounded border border-gray-300 px-4 py-2"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmDelete}
+                className="rounded bg-red-600 px-4 py-2 text-white"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   )
 }
