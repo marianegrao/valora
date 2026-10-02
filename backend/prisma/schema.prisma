@@ -49,16 +49,23 @@ enum PaymentMethod {
 }
 
 model Transaction {
-  id            String          @id @default(uuid())
-  userId        String
-  accountId     String
-  description   String?
-  value         Int
-  type          TransactionType
-  paymentMethod PaymentMethod
-  createdAt     DateTime        @default(now())
-  updatedAt     DateTime        @updatedAt
+  id              String          @id @default(uuid())
+  userId          String
+  accountId       String
+  description     String?
+  value           Int
+  type            TransactionType
+  paymentMethod   PaymentMethod
+  createdAt       DateTime        @default(now())
+  /// Client-reported edit time; drives last-write-wins conflict resolution.
+  updatedAt       DateTime        @updatedAt
+  /// Server-assigned write time; drives sync pull checkpoints so late
+  /// pushes of older offline edits are never skipped by other devices.
+  serverUpdatedAt DateTime        @default(now()) @updatedAt
+  deletedAt       DateTime?
 
   user    User    @relation(fields: [userId], references: [id], onDelete: Restrict)
   account Account @relation(fields: [accountId], references: [id], onDelete: Restrict)
+
+  @@index([userId, serverUpdatedAt, id])
 }
