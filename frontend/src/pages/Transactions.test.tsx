@@ -35,6 +35,7 @@ describe('Transactions page', () => {
       id: '1',
       name: 'Maria',
       email: 'maria@example.com',
+      encryptionKey: 'key-123',
     })
     vi.mocked(apiClient.getAccounts).mockResolvedValue([
       { id: 'acc-1', name: 'Wallet', currency: 'BRL' },

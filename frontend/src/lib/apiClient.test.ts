@@ -20,6 +20,7 @@ describe('apiClient', () => {
         new Response(
           JSON.stringify({
             accessToken: 'token-123',
+            encryptionKey: 'key-123',
             user: { id: '1', name: 'Maria', email: 'maria@example.com' },
           }),
           { status: 201, headers: { 'Content-Type': 'application/json' } },
@@ -49,6 +50,7 @@ describe('apiClient', () => {
       )
       expect(result).toEqual({
         accessToken: 'token-123',
+        encryptionKey: 'key-123',
         user: { id: '1', name: 'Maria', email: 'maria@example.com' },
       })
     })

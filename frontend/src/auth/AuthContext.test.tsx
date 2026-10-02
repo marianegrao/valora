@@ -10,11 +10,12 @@ vi.mock('../lib/apiClient', async (importOriginal) => {
 })
 
 function TestConsumer() {
-  const { user, isLoading, login, register, logout } = useAuth()
+  const { user, encryptionKey, isLoading, login, register, logout } = useAuth()
   return (
     <div>
       <span data-testid="loading">{String(isLoading)}</span>
       <span data-testid="user">{user ? user.name : 'none'}</span>
+      <span data-testid="key">{encryptionKey ?? 'none'}</span>
       <button
         onClick={() => login('maria@example.com', 'super-secret')}
       >
@@ -54,6 +55,7 @@ describe('AuthContext', () => {
   it('logs in, stores the user and persists the token', async () => {
     vi.mocked(apiClient.login).mockResolvedValue({
       accessToken: 'token-123',
+      encryptionKey: 'key-123',
       user: { id: '1', name: 'Maria', email: 'maria@example.com' },
     })
 
@@ -66,9 +68,29 @@ describe('AuthContext', () => {
     expect(localStorage.getItem('valora.accessToken')).toBe('token-123')
   })
 
+  it('keeps the encryption key in memory only, never in storage', async () => {
+    vi.mocked(apiClient.login).mockResolvedValue({
+      accessToken: 'token-123',
+      encryptionKey: 'key-123',
+      user: { id: '1', name: 'Maria', email: 'maria@example.com' },
+    })
+
+    renderWithProvider()
+    await waitFor(() => expect(screen.getByTestId('loading')).toHaveTextContent('false'))
+    await userEvent.click(screen.getByText('login'))
+
+    await waitFor(() => expect(screen.getByTestId('key')).toHaveTextContent('key-123'))
+    const stored = [
+      ...Object.values({ ...localStorage }),
+      ...Object.values({ ...sessionStorage }),
+    ]
+    expect(stored.join()).not.toContain('key-123')
+  })
+
   it('registers, stores the user and persists the token', async () => {
     vi.mocked(apiClient.register).mockResolvedValue({
       accessToken: 'token-456',
+      encryptionKey: 'key-456',
       user: { id: '2', name: 'Maria', email: 'maria@example.com' },
     })
 
@@ -87,12 +109,25 @@ describe('AuthContext', () => {
       id: '1',
       name: 'Maria',
       email: 'maria@example.com',
+      encryptionKey: 'key-123',
     })
 
     renderWithProvider()
 
     await waitFor(() => expect(screen.getByTestId('user')).toHaveTextContent('Maria'))
+    expect(screen.getByTestId('key')).toHaveTextContent('key-123')
     expect(apiClient.me).toHaveBeenCalledWith('stored-token')
+  })
+
+  it('keeps the stored token when the server cannot be reached', async () => {
+    localStorage.setItem('valora.accessToken', 'stored-token')
+    vi.mocked(apiClient.me).mockRejectedValue(new TypeError('Failed to fetch'))
+
+    renderWithProvider()
+
+    await waitFor(() => expect(screen.getByTestId('loading')).toHaveTextContent('false'))
+    expect(screen.getByTestId('user')).toHaveTextContent('none')
+    expect(localStorage.getItem('valora.accessToken')).toBe('stored-token')
   })
 
   it('clears the session when the stored token is invalid', async () => {
@@ -109,6 +144,7 @@ describe('AuthContext', () => {
   it('logs out and clears the stored token', async () => {
     vi.mocked(apiClient.login).mockResolvedValue({
       accessToken: 'token-123',
+      encryptionKey: 'key-123',
       user: { id: '1', name: 'Maria', email: 'maria@example.com' },
     })
 
@@ -120,6 +156,7 @@ describe('AuthContext', () => {
     await userEvent.click(screen.getByText('logout'))
 
     expect(screen.getByTestId('user')).toHaveTextContent('none')
+    expect(screen.getByTestId('key')).toHaveTextContent('none')
     expect(localStorage.getItem('valora.accessToken')).toBeNull()
   })
 })

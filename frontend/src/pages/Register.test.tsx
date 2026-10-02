@@ -30,6 +30,7 @@ describe('Register page', () => {
   it('submits the form and registers the user', async () => {
     vi.mocked(apiClient.register).mockResolvedValue({
       accessToken: 'token-123',
+      encryptionKey: 'key-123',
       user: { id: '1', name: 'Maria', email: 'maria@example.com' },
     })
 
