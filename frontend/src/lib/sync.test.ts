@@ -137,6 +137,21 @@ describe('createSyncController', () => {
     expect(await firstValueFrom(controller.status$)).toBe('online')
   })
 
+  it('never rejects, reporting offline when a sync cannot even start', async () => {
+    const broken = createSyncController({
+      collection: db.transactions,
+      token: 'token-123',
+      apiUrl: 'http://api.test',
+      replicate: () => {
+        throw new Error('replication setup failed')
+      },
+    })
+
+    await expect(broken.trigger()).resolves.toBeUndefined()
+    expect(await firstValueFrom(broken.status$)).toBe('offline')
+    await broken.dispose()
+  })
+
   it('can be marked offline explicitly', async () => {
     vi.stubGlobal('fetch', fakeServer().fetchMock)
     await controller.trigger()

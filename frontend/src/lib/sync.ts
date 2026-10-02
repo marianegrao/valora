@@ -25,10 +25,12 @@ export function createSyncController({
   collection,
   token,
   apiUrl = import.meta.env.VITE_API_URL,
+  replicate = replicateRxCollection,
 }: {
   collection: TransactionCollection
   token: string
   apiUrl?: string
+  replicate?: typeof replicateRxCollection
 }): SyncController {
   const status$ = new BehaviorSubject<SyncStatus>('offline')
   const headers = {
@@ -76,7 +78,7 @@ export function createSyncController({
    * collection closes) is queued behind start(), so it would hang.
    */
   async function runOnce() {
-    const replication = replicateRxCollection<TransactionDoc, Checkpoint>({
+    const replication = replicate<TransactionDoc, Checkpoint>({
       collection,
       replicationIdentifier: REPLICATION_IDENTIFIER,
       live: true,
@@ -106,7 +108,13 @@ export function createSyncController({
     running = (async () => {
       do {
         rerun = false
-        await runOnce()
+        try {
+          await runOnce()
+        } catch {
+          // Surfaced through the badge; callers fire-and-forget trigger().
+          cancelCurrent = null
+          if (!disposed) status$.next('offline')
+        }
       } while (rerun && !disposed)
     })().finally(() => {
       running = null
