@@ -1,6 +1,14 @@
-import { Controller, Get, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  ParseArrayPipe,
+  Post,
+  Query,
+} from '@nestjs/common';
 import { SyncService } from './sync.service';
 import { PullQueryDto } from './dto/pull-query.dto';
+import { PushRowDto } from './dto/push-row.dto';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { AuthenticatedUser } from '../auth/auth.service';
 
@@ -19,5 +27,14 @@ export class SyncController {
       checkpoint,
       query.batchSize,
     );
+  }
+
+  @Post('push')
+  push(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body(new ParseArrayPipe({ items: PushRowDto, whitelist: true }))
+    rows: PushRowDto[],
+  ) {
+    return this.syncService.pushTransactions(user.id, rows);
   }
 }

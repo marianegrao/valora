@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import * as request from 'supertest';
+import { randomUUID } from 'crypto';
 import { AppModule } from './../src/app.module';
 import { PrismaService } from './../src/prisma/prisma.service';
 import { resetDatabase } from './resetDatabase';
@@ -143,6 +144,113 @@ describe('Sync (e2e)', () => {
     it('rejects an invalid batch size with 400', async () => {
       const token = await registerUser('owner@example.com');
       await pull(token, { batchSize: 0 }).expect(400);
+    });
+  });
+
+  describe('POST /sync/transactions/push', () => {
+    function push(token: string, rows: unknown[]) {
+      return request(app.getHttpServer())
+        .post('/sync/transactions/push')
+        .set('Authorization', `Bearer ${token}`)
+        .send(rows);
+    }
+
+    function newDocument(accountId: string, overrides = {}) {
+      return {
+        id: randomUUID(),
+        accountId,
+        description: 'Groceries',
+        value: 4599,
+        type: 'DEBIT',
+        paymentMethod: 'PIX',
+        createdAt: 1_000,
+        updatedAt: 2_000,
+        _deleted: false,
+        ...overrides,
+      };
+    }
+
+    it('rejects unauthenticated requests with 401', async () => {
+      await request(app.getHttpServer())
+        .post('/sync/transactions/push')
+        .send([])
+        .expect(401);
+    });
+
+    it('stores pushed transactions so they can be pulled back', async () => {
+      const token = await registerUser('owner@example.com');
+      const accountId = await createAccount(token);
+      const document = newDocument(accountId);
+
+      const response = await push(token, [
+        { newDocumentState: document },
+      ]).expect(201);
+      expect(response.body).toEqual([]);
+
+      const pulled = await pull(token, { batchSize: 10 }).expect(200);
+      expect(pulled.body.documents).toEqual([document]);
+    });
+
+    it('returns the current master state when the assumed state is stale', async () => {
+      const token = await registerUser('owner@example.com');
+      const accountId = await createAccount(token);
+      const original = newDocument(accountId);
+      await push(token, [{ newDocumentState: original }]).expect(201);
+      const winner = { ...original, value: 7000, updatedAt: 3_000 };
+      await push(token, [
+        { assumedMasterState: original, newDocumentState: winner },
+      ]).expect(201);
+
+      const response = await push(token, [
+        {
+          assumedMasterState: original,
+          newDocumentState: { ...original, value: 1, updatedAt: 4_000 },
+        },
+      ]).expect(201);
+
+      expect(response.body).toEqual([winner]);
+    });
+
+    it('propagates a pushed soft-delete', async () => {
+      const token = await registerUser('owner@example.com');
+      const accountId = await createAccount(token);
+      const document = newDocument(accountId);
+      await push(token, [{ newDocumentState: document }]).expect(201);
+
+      await push(token, [
+        {
+          assumedMasterState: document,
+          newDocumentState: { ...document, updatedAt: 5_000, _deleted: true },
+        },
+      ]).expect(201);
+
+      const row = await prisma.transaction.findUniqueOrThrow({
+        where: { id: document.id },
+      });
+      expect(row.deletedAt).toEqual(new Date(5_000));
+    });
+
+    it("rejects pushing onto another user's account with 404 and writes nothing", async () => {
+      const tokenA = await registerUser('a@example.com');
+      const tokenB = await registerUser('b@example.com');
+      const accountA = await createAccount(tokenA);
+      const accountB = await createAccount(tokenB);
+
+      await push(tokenB, [
+        { newDocumentState: newDocument(accountB) },
+        { newDocumentState: newDocument(accountA) },
+      ]).expect(404);
+
+      expect(await prisma.transaction.count()).toBe(0);
+    });
+
+    it('rejects a malformed document with 400', async () => {
+      const token = await registerUser('owner@example.com');
+      const accountId = await createAccount(token);
+
+      await push(token, [
+        { newDocumentState: newDocument(accountId, { value: 'lots' }) },
+      ]).expect(400);
     });
   });
 });
