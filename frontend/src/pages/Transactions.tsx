@@ -1,23 +1,20 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
-import {
-  ApiError,
-  createTransaction,
-  getAccounts,
-  getTransactions,
-  type PaymentMethod,
-  type Transaction,
-  type TransactionType,
-} from '../lib/apiClient'
+import { useData } from '../data/DataContext'
+import { ApiError, type PaymentMethod, type TransactionType } from '../lib/apiClient'
+import { loadAccounts } from '../lib/accountsCache'
+import type { TransactionDoc } from '../lib/db'
 import { toMajorUnits, toMinorUnits } from '../lib/money'
 import { createTransactionSchema, formatValidationError } from '../lib/validation'
 
 export function Transactions() {
-  const { token } = useAuth()
+  const { token, user } = useAuth()
+  const { transactions: collection, sync, error: dataError } = useData()
   const navigate = useNavigate()
+  const userId = user?.id ?? null
   const [accountId, setAccountId] = useState<string | null>(null)
-  const [transactions, setTransactions] = useState<Transaction[]>([])
+  const [transactions, setTransactions] = useState<TransactionDoc[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -28,20 +25,18 @@ export function Transactions() {
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   useEffect(() => {
-    if (!token) return
+    if (!token || !userId) return
     const currentToken = token
+    const currentUserId = userId
 
-    async function loadTransactions() {
+    async function loadAccount() {
       try {
-        const accounts = await getAccounts(currentToken)
+        const accounts = await loadAccounts(currentToken, currentUserId)
         if (accounts.length === 0) {
           navigate('/accounts/new')
           return
         }
-        const firstAccountId = accounts[0].id
-        setAccountId(firstAccountId)
-        const data = await getTransactions(currentToken, firstAccountId)
-        setTransactions(data)
+        setAccountId(accounts[0].id)
       } catch (err) {
         setError(err instanceof ApiError ? err.message : 'Something went wrong')
       } finally {
@@ -49,12 +44,26 @@ export function Transactions() {
       }
     }
 
-    loadTransactions()
-  }, [token, navigate])
+    loadAccount()
+  }, [token, userId, navigate])
+
+  useEffect(() => {
+    if (!collection || !accountId) return
+    const subscription = collection.find({ selector: { accountId } }).$.subscribe({
+      next: (docs) =>
+        setTransactions(
+          docs
+            .map((doc) => doc.toMutableJSON())
+            .sort((a, b) => a.createdAt - b.createdAt),
+        ),
+      error: () => setError('Could not load local transactions'),
+    })
+    return () => subscription.unsubscribe()
+  }, [collection, accountId])
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault()
-    if (!token || !accountId) return
+    if (!collection || !accountId) return
     setError(null)
 
     const validation = createTransactionSchema.safeParse({
@@ -70,24 +79,34 @@ export function Transactions() {
 
     setIsSubmitting(true)
     try {
-      const created = await createTransaction(token, {
+      // Written locally first; the list updates from the local write and
+      // replication reconciles with the backend in the background.
+      const now = Date.now()
+      await collection.insert({
+        id: crypto.randomUUID(),
         accountId,
-        description: validation.data.description,
+        description: validation.data.description ?? null,
         value: toMinorUnits(validation.data.amount),
         type: validation.data.type,
         paymentMethod: validation.data.paymentMethod,
+        createdAt: now,
+        updatedAt: now,
       })
-      setTransactions((current) => [...current, created])
       setAmount('')
       setDescription('')
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Something went wrong')
+      void sync?.trigger()
+    } catch {
+      setError('Could not save the transaction')
     } finally {
       setIsSubmitting(false)
     }
   }
 
-  if (isLoading) {
+  if (dataError) {
+    return <p className="p-4 text-sm text-red-600">{dataError}</p>
+  }
+
+  if (isLoading || !collection) {
     return null
   }
 
