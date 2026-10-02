@@ -7,6 +7,7 @@ import {
 } from 'react'
 import * as apiClient from '../lib/apiClient'
 import type { AuthenticatedUser } from '../lib/apiClient'
+import { clearAccountsCache } from '../lib/accountsCache'
 
 const TOKEN_STORAGE_KEY = 'valora.accessToken'
 
@@ -77,6 +78,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   function logout() {
     localStorage.removeItem(TOKEN_STORAGE_KEY)
+    clearAccountsCache()
     setToken(null)
     setEncryptionKey(null)
     setUser(null)

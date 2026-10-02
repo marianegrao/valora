@@ -153,10 +153,12 @@ describe('AuthContext', () => {
     await userEvent.click(screen.getByText('login'))
     await waitFor(() => expect(screen.getByTestId('user')).toHaveTextContent('Maria'))
 
+    localStorage.setItem('valora.accounts.1', '[]')
     await userEvent.click(screen.getByText('logout'))
 
     expect(screen.getByTestId('user')).toHaveTextContent('none')
     expect(screen.getByTestId('key')).toHaveTextContent('none')
     expect(localStorage.getItem('valora.accessToken')).toBeNull()
+    expect(localStorage.getItem('valora.accounts.1')).toBeNull()
   })
 })
