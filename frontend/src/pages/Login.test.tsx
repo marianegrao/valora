@@ -30,6 +30,7 @@ describe('Login page', () => {
   it('submits the form and logs the user in', async () => {
     vi.mocked(apiClient.login).mockResolvedValue({
       accessToken: 'token-123',
+      encryptionKey: 'key-123',
       user: { id: '1', name: 'Maria', email: 'maria@example.com' },
     })
 

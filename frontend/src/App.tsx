@@ -1,5 +1,7 @@
 import { BrowserRouter, Routes, Route, Link } from 'react-router-dom'
 import { AuthProvider } from './auth/AuthContext'
+import { DataProvider } from './data/DataContext'
+import { SyncStatusBadge } from './components/SyncStatusBadge'
 import { Register } from './pages/Register'
 import { Login } from './pages/Login'
 import { AccountCreate } from './pages/AccountCreate'
@@ -24,14 +26,19 @@ function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
-        <Routes>
-          <Route path="/" element={<Home />} />
-          <Route path="/register" element={<Register />} />
-          <Route path="/login" element={<Login />} />
-          <Route path="/accounts/new" element={<AccountCreate />} />
-          <Route path="/transactions" element={<Transactions />} />
-          <Route path="/dashboard" element={<Dashboard />} />
-        </Routes>
+        <DataProvider>
+          <div className="fixed right-4 top-4">
+            <SyncStatusBadge />
+          </div>
+          <Routes>
+            <Route path="/" element={<Home />} />
+            <Route path="/register" element={<Register />} />
+            <Route path="/login" element={<Login />} />
+            <Route path="/accounts/new" element={<AccountCreate />} />
+            <Route path="/transactions" element={<Transactions />} />
+            <Route path="/dashboard" element={<Dashboard />} />
+          </Routes>
+        </DataProvider>
       </AuthProvider>
     </BrowserRouter>
   )

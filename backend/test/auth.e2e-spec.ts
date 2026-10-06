@@ -37,6 +37,7 @@ describe('Auth (e2e)', () => {
         .expect(201);
 
       expect(response.body.accessToken).toEqual(expect.any(String));
+      expect(response.body.encryptionKey).toMatch(/^[0-9a-f]{64}$/);
       expect(response.body.user).toEqual({
         id: expect.any(String),
         name: 'Maria',
@@ -74,6 +75,19 @@ describe('Auth (e2e)', () => {
       expect(response.body.accessToken).toEqual(expect.any(String));
     });
 
+    it('returns the same encryption key issued at registration', async () => {
+      const user = await prisma.user.findUniqueOrThrow({
+        where: { email: 'maria@example.com' },
+      });
+
+      const response = await request(app.getHttpServer())
+        .post('/auth/login')
+        .send({ email: 'maria@example.com', password: 'super-secret' })
+        .expect(201);
+
+      expect(response.body.encryptionKey).toBe(user.encryptionKey);
+    });
+
     it('rejects a wrong password with 401', async () => {
       await request(app.getHttpServer())
         .post('/auth/login')
@@ -104,6 +118,7 @@ describe('Auth (e2e)', () => {
         id: registerResponse.body.user.id,
         name: 'Maria',
         email: 'maria@example.com',
+        encryptionKey: registerResponse.body.encryptionKey,
       });
     });
   });
