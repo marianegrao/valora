@@ -43,6 +43,7 @@ describe('AuthService', () => {
           name: data.name,
           email: data.email,
           password: data.password,
+          encryptionKey: data.encryptionKey,
           createdAt: new Date(),
           updatedAt: new Date(),
         }),
@@ -58,14 +59,38 @@ describe('AuthService', () => {
       const createdPassword = prisma.user.create.mock.calls[0][0].data
         .password as string;
       expect(createdPassword).not.toBe('super-secret');
+      const createdKey = prisma.user.create.mock.calls[0][0].data
+        .encryptionKey as string;
+      expect(createdKey).toMatch(/^[0-9a-f]{64}$/);
       expect(await bcrypt.compare('super-secret', createdPassword)).toBe(
         true,
       );
 
       expect(result).toEqual({
         accessToken: 'signed-jwt-token',
+        encryptionKey: createdKey,
         user: { id: 'user-1', name: 'Maria', email: 'maria@example.com' },
       });
+    });
+
+    it('issues a different encryption key for each user', async () => {
+      prisma.user.findUnique.mockResolvedValue(null);
+      prisma.user.create.mockImplementation(({ data }) =>
+        Promise.resolve({ id: 'user-x', ...data }),
+      );
+
+      const first = await service.register({
+        name: 'A',
+        email: 'a@example.com',
+        password: 'super-secret',
+      });
+      const second = await service.register({
+        name: 'B',
+        email: 'b@example.com',
+        password: 'super-secret',
+      });
+
+      expect(first.encryptionKey).not.toBe(second.encryptionKey);
     });
 
     it('throws a conflict error when the email is already registered', async () => {
@@ -90,6 +115,7 @@ describe('AuthService', () => {
         name: 'Maria',
         email: 'maria@example.com',
         password: hashed,
+        encryptionKey: 'stored-key',
       });
 
       const result = await service.login({
@@ -99,6 +125,7 @@ describe('AuthService', () => {
 
       expect(result).toEqual({
         accessToken: 'signed-jwt-token',
+        encryptionKey: 'stored-key',
         user: { id: 'user-1', name: 'Maria', email: 'maria@example.com' },
       });
     });
@@ -126,6 +153,38 @@ describe('AuthService', () => {
           password: 'wrong-password',
         }),
       ).rejects.toBeInstanceOf(UnauthorizedException);
+    });
+  });
+
+  describe('me', () => {
+    it('returns the user together with their encryption key', async () => {
+      prisma.user.findUnique.mockResolvedValue({
+        id: 'user-1',
+        name: 'Maria',
+        email: 'maria@example.com',
+        password: 'hashed',
+        encryptionKey: 'stored-key',
+      });
+
+      const result = await service.me('user-1');
+
+      expect(prisma.user.findUnique).toHaveBeenCalledWith({
+        where: { id: 'user-1' },
+      });
+      expect(result).toEqual({
+        id: 'user-1',
+        name: 'Maria',
+        email: 'maria@example.com',
+        encryptionKey: 'stored-key',
+      });
+    });
+
+    it('throws unauthorized when the user no longer exists', async () => {
+      prisma.user.findUnique.mockResolvedValue(null);
+
+      await expect(service.me('missing')).rejects.toBeInstanceOf(
+        UnauthorizedException,
+      );
     });
   });
 });

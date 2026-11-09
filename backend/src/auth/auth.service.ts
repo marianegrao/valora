@@ -5,11 +5,13 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
+import { randomBytes } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 
 const PASSWORD_SALT_ROUNDS = 10;
+const ENCRYPTION_KEY_BYTES = 32;
 
 export interface AuthenticatedUser {
   id: string;
@@ -19,7 +21,12 @@ export interface AuthenticatedUser {
 
 export interface AuthResult {
   accessToken: string;
+  encryptionKey: string;
   user: AuthenticatedUser;
+}
+
+export interface CurrentUserWithKey extends AuthenticatedUser {
+  encryptionKey: string;
 }
 
 @Injectable()
@@ -46,6 +53,7 @@ export class AuthService {
         name: dto.name,
         email: dto.email,
         password: hashedPassword,
+        encryptionKey: randomBytes(ENCRYPTION_KEY_BYTES).toString('hex'),
       },
     });
 
@@ -68,10 +76,24 @@ export class AuthService {
     return this.buildAuthResult(user);
   }
 
+  async me(userId: string): Promise<CurrentUserWithKey> {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      throw new UnauthorizedException();
+    }
+    return {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      encryptionKey: user.encryptionKey,
+    };
+  }
+
   private buildAuthResult(user: {
     id: string;
     name: string;
     email: string;
+    encryptionKey: string;
   }): AuthResult {
     const accessToken = this.jwtService.sign({
       sub: user.id,
@@ -80,6 +102,7 @@ export class AuthService {
 
     return {
       accessToken,
+      encryptionKey: user.encryptionKey,
       user: { id: user.id, name: user.name, email: user.email },
     };
   }

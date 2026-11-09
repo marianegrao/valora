@@ -18,7 +18,12 @@ export interface AuthenticatedUser {
 
 export interface AuthResult {
   accessToken: string
+  encryptionKey: string
   user: AuthenticatedUser
+}
+
+export interface CurrentUser extends AuthenticatedUser {
+  encryptionKey: string
 }
 
 async function apiFetch<T>(
@@ -64,8 +69,8 @@ export function login(input: {
   return apiFetch<AuthResult>('/auth/login', { method: 'POST', body: input })
 }
 
-export function me(token: string): Promise<AuthenticatedUser> {
-  return apiFetch<AuthenticatedUser>('/auth/me', { method: 'GET', token })
+export function me(token: string): Promise<CurrentUser> {
+  return apiFetch<CurrentUser>('/auth/me', { method: 'GET', token })
 }
 
 export type Currency = 'BRL' | 'USD'

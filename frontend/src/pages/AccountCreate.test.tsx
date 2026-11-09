@@ -33,6 +33,7 @@ describe('AccountCreate page', () => {
       id: '1',
       name: 'Maria',
       email: 'maria@example.com',
+      encryptionKey: 'key-123',
     })
   })
 

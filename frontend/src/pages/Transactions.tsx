@@ -1,23 +1,20 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
-import {
-  ApiError,
-  createTransaction,
-  getAccounts,
-  getTransactions,
-  type PaymentMethod,
-  type Transaction,
-  type TransactionType,
-} from '../lib/apiClient'
+import { useData } from '../data/DataContext'
+import { ApiError, type PaymentMethod, type TransactionType } from '../lib/apiClient'
+import { loadAccounts } from '../lib/accountsCache'
+import type { TransactionDoc } from '../lib/db'
 import { toMajorUnits, toMinorUnits } from '../lib/money'
 import { createTransactionSchema, formatValidationError } from '../lib/validation'
 
 export function Transactions() {
-  const { token } = useAuth()
+  const { token, user } = useAuth()
+  const { transactions: collection, sync, error: dataError } = useData()
   const navigate = useNavigate()
+  const userId = user?.id ?? null
   const [accountId, setAccountId] = useState<string | null>(null)
-  const [transactions, setTransactions] = useState<Transaction[]>([])
+  const [transactions, setTransactions] = useState<TransactionDoc[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -26,22 +23,22 @@ export function Transactions() {
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('PIX')
   const [description, setDescription] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null)
 
   useEffect(() => {
-    if (!token) return
+    if (!token || !userId) return
     const currentToken = token
+    const currentUserId = userId
 
-    async function loadTransactions() {
+    async function loadAccount() {
       try {
-        const accounts = await getAccounts(currentToken)
+        const accounts = await loadAccounts(currentToken, currentUserId)
         if (accounts.length === 0) {
           navigate('/accounts/new')
           return
         }
-        const firstAccountId = accounts[0].id
-        setAccountId(firstAccountId)
-        const data = await getTransactions(currentToken, firstAccountId)
-        setTransactions(data)
+        setAccountId(accounts[0].id)
       } catch (err) {
         setError(err instanceof ApiError ? err.message : 'Something went wrong')
       } finally {
@@ -49,12 +46,26 @@ export function Transactions() {
       }
     }
 
-    loadTransactions()
-  }, [token, navigate])
+    loadAccount()
+  }, [token, userId, navigate])
+
+  useEffect(() => {
+    if (!collection || !accountId) return
+    const subscription = collection.find({ selector: { accountId } }).$.subscribe({
+      next: (docs) =>
+        setTransactions(
+          docs
+            .map((doc) => doc.toMutableJSON())
+            .sort((a, b) => a.createdAt - b.createdAt),
+        ),
+      error: () => setError('Could not load local transactions'),
+    })
+    return () => subscription.unsubscribe()
+  }, [collection, accountId])
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault()
-    if (!token || !accountId) return
+    if (!collection || !accountId) return
     setError(null)
 
     const validation = createTransactionSchema.safeParse({
@@ -70,24 +81,79 @@ export function Transactions() {
 
     setIsSubmitting(true)
     try {
-      const created = await createTransaction(token, {
-        accountId,
-        description: validation.data.description,
+      // Written locally first; the list updates from the local write and
+      // replication reconciles with the backend in the background.
+      // updatedAt is bumped on every write: it decides last-write-wins.
+      const now = Date.now()
+      const fields = {
+        description: validation.data.description ?? null,
         value: toMinorUnits(validation.data.amount),
         type: validation.data.type,
         paymentMethod: validation.data.paymentMethod,
-      })
-      setTransactions((current) => [...current, created])
-      setAmount('')
-      setDescription('')
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Something went wrong')
+        updatedAt: now,
+      }
+      if (editingId) {
+        const doc = await collection.findOne(editingId).exec()
+        if (!doc) throw new Error('Transaction no longer exists')
+        await doc.incrementalPatch(fields)
+      } else {
+        await collection.insert({
+          id: crypto.randomUUID(),
+          accountId,
+          createdAt: now,
+          ...fields,
+        })
+      }
+      resetForm()
+      void sync?.trigger()
+    } catch {
+      setError('Could not save the transaction')
     } finally {
       setIsSubmitting(false)
     }
   }
 
-  if (isLoading) {
+  function resetForm() {
+    setEditingId(null)
+    setAmount('')
+    setType('DEBIT')
+    setPaymentMethod('PIX')
+    setDescription('')
+  }
+
+  function startEditing(transaction: TransactionDoc) {
+    setError(null)
+    setEditingId(transaction.id)
+    setAmount(toMajorUnits(transaction.value))
+    setType(transaction.type)
+    setPaymentMethod(transaction.paymentMethod)
+    setDescription(transaction.description ?? '')
+  }
+
+  async function confirmDelete() {
+    if (!collection || !pendingDeleteId) return
+    const id = pendingDeleteId
+    setPendingDeleteId(null)
+    setError(null)
+    try {
+      const doc = await collection.findOne(id).exec()
+      if (!doc) return
+      // Soft-delete: the bumped updatedAt travels with _deleted so the
+      // deletion wins over older edits made on other devices.
+      const touched = await doc.incrementalPatch({ updatedAt: Date.now() })
+      await touched.incrementalRemove()
+      if (editingId === id) resetForm()
+      void sync?.trigger()
+    } catch {
+      setError('Could not delete the transaction')
+    }
+  }
+
+  if (dataError) {
+    return <p className="p-4 text-sm text-red-600">{dataError}</p>
+  }
+
+  if (isLoading || !collection) {
     return null
   }
 
@@ -99,10 +165,26 @@ export function Transactions() {
         {transactions.map((transaction) => (
           <li
             key={transaction.id}
-            className="flex justify-between rounded border border-gray-200 px-3 py-2"
+            className="flex items-center justify-between gap-3 rounded border border-gray-200 px-3 py-2"
           >
-            <span>{transaction.description || transaction.paymentMethod}</span>
+            <span className="flex-1">
+              {transaction.description || transaction.paymentMethod}
+            </span>
             <span>{toMajorUnits(transaction.value)}</span>
+            <button
+              type="button"
+              onClick={() => startEditing(transaction)}
+              className="text-sm underline"
+            >
+              Edit
+            </button>
+            <button
+              type="button"
+              onClick={() => setPendingDeleteId(transaction.id)}
+              className="text-sm text-red-600 underline"
+            >
+              Delete
+            </button>
           </li>
         ))}
       </ul>
@@ -156,9 +238,49 @@ export function Transactions() {
           disabled={isSubmitting}
           className="rounded bg-gray-900 px-4 py-2 text-white disabled:opacity-50"
         >
-          Add transaction
+          {editingId ? 'Save changes' : 'Add transaction'}
         </button>
+        {editingId && (
+          <button
+            type="button"
+            onClick={resetForm}
+            className="rounded border border-gray-300 px-4 py-2"
+          >
+            Cancel
+          </button>
+        )}
       </form>
+
+      {pendingDeleteId && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-transaction-title"
+          className="fixed inset-0 flex items-center justify-center bg-black/30 px-4"
+        >
+          <div className="flex w-full max-w-sm flex-col gap-4 rounded bg-white p-4">
+            <p id="delete-transaction-title" className="text-sm text-gray-900">
+              Delete this transaction?
+            </p>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setPendingDeleteId(null)}
+                className="rounded border border-gray-300 px-4 py-2"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmDelete}
+                className="rounded bg-red-600 px-4 py-2 text-white"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   )
 }
